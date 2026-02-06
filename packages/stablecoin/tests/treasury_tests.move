@@ -16,13 +16,12 @@
 
 #[test_only]
 module stablecoin::treasury_tests {
-    use std::unit_test;
-    use std::string;
+    use std::{unit_test, string, ascii, option};
     use sui::{
-        coin::{Self, Coin},
-        coin_registry,
+        coin::{Self, Coin, CoinMetadata},
         deny_list::{Self, DenyList},
         event,
+        url,
         vec_set,
         test_scenario::{Self, Scenario}, 
     };
@@ -88,6 +87,67 @@ module stablecoin::treasury_tests {
         // Transaction 7: remove controller
         scenario.next_tx(MASTER_MINTER);
         test_remove_controller(CONTROLLER, &mut scenario);
+
+        scenario.end();
+    }
+
+    #[test]
+    fun update_metadata__should_succeed_and_pass_all_assertions() {
+        let mut scenario = setup();
+
+        scenario.next_tx(METADATA_UPDATER);
+        test_update_metadata(
+            string::utf8(b"new name"),
+            ascii::string(b"new symbol"),
+            string::utf8(b"new description"),
+            ascii::string(b"new url"),
+            &mut scenario
+        );
+
+        // try to unset the URL
+        scenario.next_tx(METADATA_UPDATER);
+        test_update_metadata(
+            string::utf8(b"new name"),
+            ascii::string(b"new symbol"),
+            string::utf8(b"new description"),
+            ascii::string(b""),
+            &mut scenario
+        );
+
+        scenario.end();
+    }
+
+    #[test, expected_failure(abort_code = ::stablecoin::treasury::ENotMetadataUpdater)]
+    fun update_metadata__should_fail_if_not_metadata_updater() {
+        let mut scenario = setup();
+
+        scenario.next_tx(RANDOM_ADDRESS);
+        test_update_metadata(
+            string::utf8(b"new name"),
+            ascii::string(b"new symbol"),
+            string::utf8(b"new description"),
+            ascii::string(b"new url"),
+            &mut scenario
+        );
+
+        scenario.end();
+    }
+
+    #[test, expected_failure(abort_code = ::stablecoin::treasury::ETreasuryCapNotFound)]
+    fun update_metadata__should_fail_if_treasury_cap_not_found() {
+        let mut scenario = setup();
+
+        scenario.next_tx(RANDOM_ADDRESS);
+        remove_treasury_cap(&scenario);
+
+        scenario.next_tx(METADATA_UPDATER);
+        test_update_metadata(
+            string::utf8(b"new name"),
+            ascii::string(b"new symbol"),
+            string::utf8(b"new description"),
+            ascii::string(b"new url"),
+            &mut scenario
+        );
 
         scenario.end();
     }
@@ -1079,17 +1139,16 @@ module stablecoin::treasury_tests {
         {
             deny_list::create_for_testing(scenario.ctx());
             let otw = sui::test_utils::create_one_time_witness<TREASURY_TESTS>();
-            let (mut currency_init, treasury_cap) = coin_registry::new_currency_with_otw(
+            let (treasury_cap, deny_cap, metadata) = coin::create_regulated_currency_v2(
                 otw,
                 6,
-                string::utf8(b"SYMBOL"),
-                string::utf8(b"NAME"),
-                string::utf8(b""),
-                string::utf8(b""),
+                b"SYMBOL",
+                b"NAME",
+                b"",
+                option::some(url::new_unsafe(ascii::string(b""))),
+                true,
                 scenario.ctx()
             );
-            let deny_cap = currency_init.make_regulated(true, scenario.ctx());
-            let metadata_cap = currency_init.finalize(scenario.ctx());
 
             let treasury = treasury::new(
                 treasury_cap,
@@ -1113,7 +1172,7 @@ module stablecoin::treasury_tests {
             treasury.assert_treasury_cap_exists();
             treasury.assert_deny_cap_exists();
 
-            transfer::public_share_object(metadata_cap);
+            transfer::public_share_object(metadata);
             transfer::public_share_object(treasury);
         };
 
@@ -1369,6 +1428,47 @@ module stablecoin::treasury_tests {
         let mut treasury = scenario.take_shared<Treasury<TREASURY_TESTS>>();
         entry::update_metadata_updater(&mut treasury, new_metadata_updater, scenario.ctx());
         unit_test::assert_eq!(treasury.roles().metadata_updater(), new_metadata_updater);
+        test_scenario::return_shared(treasury);
+    }
+
+    fun test_update_metadata(
+        name: string::String,
+        symbol: ascii::String,
+        description: string::String,
+        icon_url: ascii::String,
+        scenario: &mut Scenario
+    ) {
+        let treasury = scenario.take_shared<Treasury<TREASURY_TESTS>>();
+        let mut metadata = scenario.take_shared<CoinMetadata<TREASURY_TESTS>>();
+
+        let expected_event = treasury::create_metadata_updated_event<TREASURY_TESTS>(
+            copy name,
+            copy symbol,
+            copy description,
+            copy icon_url
+        );
+
+        treasury::update_metadata(
+            &treasury,
+            &mut metadata,
+            copy name,
+            copy symbol,
+            copy description,
+            copy icon_url,
+            scenario.ctx()
+        );
+
+        unit_test::assert_eq!(metadata.get_name(), name);
+        unit_test::assert_eq!(metadata.get_symbol(), symbol);
+        unit_test::assert_eq!(metadata.get_description(), description);
+
+        let icon_url_option = metadata.get_icon_url();
+        unit_test::assert_eq!(option::is_some(&icon_url_option), true);
+
+        unit_test::assert_eq!(event::num_events(), 1);
+        unit_test::assert_eq!(last_event_by_type(), expected_event);
+
+        test_scenario::return_shared(metadata);
         test_scenario::return_shared(treasury);
     }
 

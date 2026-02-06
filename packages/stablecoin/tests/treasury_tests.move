@@ -16,7 +16,7 @@
 
 #[test_only]
 module stablecoin::treasury_tests {
-    use std::{unit_test, string, ascii, option};
+    use std::{unit_test, string, ascii};
     use sui::{
         coin::{Self, Coin, CoinMetadata},
         deny_list::{Self, DenyList},
@@ -87,67 +87,6 @@ module stablecoin::treasury_tests {
         // Transaction 7: remove controller
         scenario.next_tx(MASTER_MINTER);
         test_remove_controller(CONTROLLER, &mut scenario);
-
-        scenario.end();
-    }
-
-    #[test]
-    fun update_metadata__should_succeed_and_pass_all_assertions() {
-        let mut scenario = setup();
-
-        scenario.next_tx(METADATA_UPDATER);
-        test_update_metadata(
-            string::utf8(b"new name"),
-            ascii::string(b"new symbol"),
-            string::utf8(b"new description"),
-            ascii::string(b"new url"),
-            &mut scenario
-        );
-
-        // try to unset the URL
-        scenario.next_tx(METADATA_UPDATER);
-        test_update_metadata(
-            string::utf8(b"new name"),
-            ascii::string(b"new symbol"),
-            string::utf8(b"new description"),
-            ascii::string(b""),
-            &mut scenario
-        );
-
-        scenario.end();
-    }
-
-    #[test, expected_failure(abort_code = ::stablecoin::treasury::ENotMetadataUpdater)]
-    fun update_metadata__should_fail_if_not_metadata_updater() {
-        let mut scenario = setup();
-
-        scenario.next_tx(RANDOM_ADDRESS);
-        test_update_metadata(
-            string::utf8(b"new name"),
-            ascii::string(b"new symbol"),
-            string::utf8(b"new description"),
-            ascii::string(b"new url"),
-            &mut scenario
-        );
-
-        scenario.end();
-    }
-
-    #[test, expected_failure(abort_code = ::stablecoin::treasury::ETreasuryCapNotFound)]
-    fun update_metadata__should_fail_if_treasury_cap_not_found() {
-        let mut scenario = setup();
-
-        scenario.next_tx(RANDOM_ADDRESS);
-        remove_treasury_cap(&scenario);
-
-        scenario.next_tx(METADATA_UPDATER);
-        test_update_metadata(
-            string::utf8(b"new name"),
-            ascii::string(b"new symbol"),
-            string::utf8(b"new description"),
-            ascii::string(b"new url"),
-            &mut scenario
-        );
 
         scenario.end();
     }

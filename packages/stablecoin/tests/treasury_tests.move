@@ -1084,9 +1084,16 @@ module stablecoin::treasury_tests {
 
     #[test, expected_failure(abort_code = ::stablecoin::version_control::EIncompatibleVersion)]
     fun update_metadata__should_fail_if_treasury_object_is_incompatible() {
-        let (mut scenario, mut treasury, deny_list) = before_incompatible_treasury_object_scenario();
-        // Just try any treasury operation to test version incompatibility
-        entry::update_master_minter(&mut treasury, RANDOM_ADDRESS, scenario.ctx());
+        let (mut scenario, treasury, deny_list, mut metadata) = before_incompatible_treasury_object_with_metadata_scenario();
+        treasury.update_metadata(
+            &mut metadata,
+            string::utf8(b"new name"),
+            ascii::string(b"new symbol"),
+            string::utf8(b"new description"),
+            ascii::string(b"new url"),
+            scenario.ctx()
+        );
+        test_scenario::return_shared(metadata);
         after_incompatible_treasury_object_scenario(scenario, treasury, deny_list);
     }
 
@@ -1134,6 +1141,7 @@ module stablecoin::treasury_tests {
 
     // === Helpers ===
 
+    #[allow(deprecated_usage)]
     fun setup(): Scenario {
         let mut scenario = test_scenario::begin(DEPLOYER);
         {
@@ -1192,6 +1200,21 @@ module stablecoin::treasury_tests {
         let treasury = scenario.take_shared<Treasury<TREASURY_TESTS>>();
         let deny_list = scenario.take_shared<DenyList>();
         (scenario, treasury, deny_list)
+    }
+
+    fun before_incompatible_treasury_object_with_metadata_scenario(): (Scenario, Treasury<TREASURY_TESTS>, DenyList, CoinMetadata<TREASURY_TESTS>) {
+        let mut scenario = setup();
+
+        scenario.next_tx(OWNER);
+        let mut treasury = scenario.take_shared<Treasury<TREASURY_TESTS>>();
+        treasury.set_compatible_versions_for_testing(vec_set::singleton(version_control::current_version() + 1));
+        test_scenario::return_shared(treasury);
+
+        scenario.next_tx(OWNER);
+        let treasury = scenario.take_shared<Treasury<TREASURY_TESTS>>();
+        let deny_list = scenario.take_shared<DenyList>();
+        let metadata = scenario.take_shared<CoinMetadata<TREASURY_TESTS>>();
+        (scenario, treasury, deny_list, metadata)
     }
 
     fun after_incompatible_treasury_object_scenario(scenario: Scenario, treasury: Treasury<TREASURY_TESTS>, deny_list: DenyList) {
